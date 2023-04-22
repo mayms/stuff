@@ -1,0 +1,12 @@
+[package]
+name = "pi-xbee-server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+env_logger = "0.10.0"
+htu21 = { version = "0.1.0", path = "../htu21" }
+log = "0.4.17"
+rppal = "0.14.1"
