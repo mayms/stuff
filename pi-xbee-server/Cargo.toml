@@ -8,5 +8,9 @@ edition = "2021"
 [dependencies]
 env_logger = "0.10.0"
 htu21 = { version = "0.1.0", path = "../htu21" }
+lazy_static = "1.4.0"
 log = "0.4.17"
+prometheus = "0.13.3"
 rppal = "0.14.1"
+tokio = { version = "1.27.0", features = ["full"] }
+warp = "0.3.4"
