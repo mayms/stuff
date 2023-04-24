@@ -1,9 +1,9 @@
 use rppal::uart::{Parity, Uart};
 use std::time::Duration;
 use htu21;
-use log::{info};
+use log::{info, warn};
 use lazy_static::lazy_static;
-use prometheus::*;
+use prometheus::{TextEncoder, Encoder, register_gauge, opts, labels, Gauge};
 use warp::{Filter, http};
 use warp::http::header::CONTENT_TYPE;
 
@@ -22,6 +22,11 @@ lazy_static! {
     .unwrap();
 }
 
+struct SensorValues {
+    temperature: f64,
+    humidity: f64,
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -34,15 +39,27 @@ async fn main() {
         let mut buffer = [0u8; 13];
         loop {
             if uart.read(&mut buffer).expect("unable to read") > 0 {
-                let x = buffer.as_slice().split_at(8).1.split_at(4).0;
-                let temperature = htu21::parse_temperature(x.split_at(2).0);
-                let humidity = htu21::parse_humidity(x.split_at(2).1);
-                TEMPERATURE_GAUGE.set(temperature as f64);
-                HUMIDITY_GAUGE.set(humidity as f64);
-                info!("sensor data received; temperature={} humidity={}", temperature, humidity);
+                match parse_sensor_values(buffer.as_slice()) {
+                    Ok(SensorValues { temperature, humidity }) => {
+                        TEMPERATURE_GAUGE.set(temperature as f64);
+                        HUMIDITY_GAUGE.set(humidity as f64);
+                        info!("sensor data received; temperature={} humidity={}", temperature, humidity);
+                    }
+                    Err(e) => {
+                        warn!("sensor data invalid; error={:?}", e);
+                    }
+                }
             }
         }
     });
+
+    fn parse_sensor_values(buffer: &[u8]) -> Result<SensorValues, htu21::Error> {
+        let data_part = buffer.split_at(8).1.split_at(4).0;
+        let split = data_part.split_at(2);
+        let temperature = htu21::parse_temperature(split.0)? as f64;
+        let humidity = htu21::parse_humidity(split.1)? as f64;
+        return Ok(SensorValues { temperature, humidity });
+    }
 
     let metrics = warp::path!("metrics")
         .map(|| {
