@@ -1,5 +1,7 @@
 #![no_std]
+
 use crc::{Algorithm, Crc};
+use crate::Error::{NotHumiditySensorValue, NotTemperatureSensoreValue};
 
 const CUSTOM_ALG: Algorithm<u16> =
     Algorithm {
@@ -10,8 +12,14 @@ const CUSTOM_ALG: Algorithm<u16> =
         refout: false,
         xorout: 0x0000,
         check: 0x0000,
-        residue: 0x0000
+        residue: 0x0000,
     };
+
+#[derive(PartialEq, Debug)]
+pub enum Error {
+    NotTemperatureSensoreValue,
+    NotHumiditySensorValue,
+}
 
 fn crc() -> Crc<u16> {
     return Crc::<u16>::new(&CUSTOM_ALG);
@@ -22,26 +30,26 @@ pub fn check(data: &[u8], check: &u8) -> bool {
     return checksum as u8 == *check;
 }
 
-pub fn parse_temperature(data: &[u8]) -> f32 {
-    let msb:u16 = (data[0] as u16) << 8;
-    let status:u8 = (data[1] & 0b0000_0010) >> 1;
+pub fn parse_temperature(data: &[u8]) -> Result<f32, Error> {
+    let msb: u16 = (data[0] as u16) << 8;
+    let status: u8 = (data[1] & 0b0000_0010) >> 1;
     if status != 0 {
-        panic!("not a temperature sensore value")
+        return Err(NotTemperatureSensoreValue);
     }
-    let lsb:u16 = (data[1] & 0b1111_1100) as u16;
+    let lsb: u16 = (data[1] & 0b1111_1100) as u16;
     let data_f32 = (msb | lsb) as f32;
-    return -46.85 + 175.72 * (data_f32 / 65536 as f32);
+    return Ok(-46.85 + 175.72 * (data_f32 / 65536 as f32));
 }
 
-pub fn parse_humidity(data: &[u8]) -> f32 {
-    let msb:u16 = (data[0] as u16) << 8;
-    let status:u8 = (data[1] & 0b0000_0010) >> 1;
+pub fn parse_humidity(data: &[u8]) -> Result<f32, Error> {
+    let msb: u16 = (data[0] as u16) << 8;
+    let status: u8 = (data[1] & 0b0000_0010) >> 1;
     if status != 1 {
-        panic!("not a humidity sensor value")
+        return Err(NotHumiditySensorValue);
     }
-    let lsb:u16 = (data[1] & 0b1111_1100) as u16;
+    let lsb: u16 = (data[1] & 0b1111_1100) as u16;
     let data_f32 = (msb | lsb) as f32;
-    return -6.0 + 125.0 * (data_f32 / 65536 as f32);
+    return Ok(-6.0 + 125.0 * (data_f32 / 65536 as f32));
 }
 
 #[cfg(test)]
@@ -63,7 +71,7 @@ mod tests {
     #[test]
     fn humidity_example_interpretation() {
         let actual = parse_humidity(&[0x68, 0x3a]);
-        assert_eq!(actual, 44.88806);
+        assert_eq!(actual, Ok(44.88806));
     }
 
     #[test]
@@ -81,18 +89,6 @@ mod tests {
     #[test]
     fn temperature_example_interpretation() {
         let actual = parse_temperature(&[0x4e, 0x85]);
-        assert_eq!(actual, 7.0436172);
-    }
-
-    #[test]
-    fn console_parse_humidity() {
-        let actual = parse_humidity(&[0x73, 0xca]);
-        assert_eq!(actual, 42.42);
-    }
-
-    #[test]
-    fn console_parse_temperature() {
-        let actual = parse_temperature(&[0x69, 0xd4]);
-        assert_eq!(actual, 42.42);
+        assert_eq!(actual, Ok(7.0436172));
     }
 }
