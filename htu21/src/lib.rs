@@ -26,7 +26,7 @@ pub fn parse_temperature(data: &[u8]) -> f32 {
     let msb:u16 = (data[0] as u16) << 8;
     let status:u8 = (data[1] & 0b0000_0010) >> 1;
     if status != 0 {
-        panic!()
+        panic!("not a temperature sensore value")
     }
     let lsb:u16 = (data[1] & 0b1111_1100) as u16;
     let data_f32 = (msb | lsb) as f32;
@@ -37,7 +37,7 @@ pub fn parse_humidity(data: &[u8]) -> f32 {
     let msb:u16 = (data[0] as u16) << 8;
     let status:u8 = (data[1] & 0b0000_0010) >> 1;
     if status != 1 {
-        panic!()
+        panic!("not a humidity sensor value")
     }
     let lsb:u16 = (data[1] & 0b1111_1100) as u16;
     let data_f32 = (msb | lsb) as f32;
