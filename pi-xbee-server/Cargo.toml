@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 env_logger = "0.10.0"
+hex-string = "0.1.0"
 htu21 = { version = "0.1.0", path = "../htu21" }
 lazy_static = "1.4.0"
 log = "0.4.17"

@@ -6,6 +6,7 @@ use lazy_static::lazy_static;
 use prometheus::{TextEncoder, Encoder, register_gauge, opts, labels, Gauge};
 use warp::{Filter, http};
 use warp::http::header::CONTENT_TYPE;
+use hex_string::HexString;
 
 lazy_static! {
     static ref TEMPERATURE_GAUGE: Gauge = register_gauge!(opts!(
@@ -36,22 +37,33 @@ async fn main() {
             .expect("unable to create UART");
         uart.set_read_mode(13, Duration::default())
             .expect("unable to set baud rate");
-        let mut buffer = [0u8; 13];
+        let mut buffer = [0x00u8; 13];
         loop {
-            if uart.read(&mut buffer).expect("unable to read") > 0 {
+            let bytes_read = uart.read(&mut buffer).expect("unable to read");
+            if bytes_read > 0 && buffer[0] == 0x7e {
+                let mut buffer_vec = Vec::new();
+                for byte in buffer {
+                    buffer_vec.push(byte);
+                }
+                let buffer_string = HexString::from_bytes(&buffer_vec).as_string();
                 match parse_sensor_values(buffer.as_slice()) {
                     Ok(SensorValues { temperature, humidity }) => {
                         TEMPERATURE_GAUGE.set(temperature as f64);
                         HUMIDITY_GAUGE.set(humidity as f64);
-                        info!("sensor data received; temperature={} humidity={}", temperature, humidity);
+                        info!("sensor data received; buffer={} temperature={} humidity={}", buffer_string, temperature, humidity);
                     }
                     Err(e) => {
-                        warn!("sensor data invalid; error={:?}", e);
+                        warn!("sensor data invalid; buffer={} error={:?}", buffer_string, e);
                     }
                 }
+            } else {
+                warn!("uart skip read one byte;");
+                let mut skip_buffer = [0x00u8];
+                uart.read(&mut skip_buffer).expect("unable to skip read");
             }
         }
-    });
+    }
+    );
 
     fn parse_sensor_values(buffer: &[u8]) -> Result<SensorValues, htu21::Error> {
         let data_part = buffer.split_at(8).1.split_at(4).0;
