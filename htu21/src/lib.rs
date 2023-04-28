@@ -31,25 +31,27 @@ pub fn check(data: &[u8], check: &u8) -> bool {
 }
 
 pub fn parse_temperature(data: &[u8]) -> Result<f32, Error> {
-    let msb: u16 = (data[0] as u16) << 8;
     let status: u8 = (data[1] & 0b0000_0010) >> 1;
     if status != 0 {
         return Err(NotTemperatureSensoreValue);
     }
-    let lsb: u16 = (data[1] & 0b1111_1100) as u16;
-    let data_f32 = (msb | lsb) as f32;
-    return Ok(-46.85 + 175.72 * (data_f32 / 65536 as f32));
+    let msb: u8 = data[0];
+    let lsb: u8 = data[1] & 0b1111_1100;
+    let data_u16 = u16::from_be_bytes([msb, lsb]);
+    let data_f32 = f32::from(data_u16);
+    return Ok(-46.85 + 175.72 * (data_f32 / 65536.0));
 }
 
 pub fn parse_humidity(data: &[u8]) -> Result<f32, Error> {
-    let msb: u16 = (data[0] as u16) << 8;
     let status: u8 = (data[1] & 0b0000_0010) >> 1;
     if status != 1 {
         return Err(NotHumiditySensorValue);
     }
-    let lsb: u16 = (data[1] & 0b1111_1100) as u16;
-    let data_f32 = (msb | lsb) as f32;
-    return Ok(-6.0 + 125.0 * (data_f32 / 65536 as f32));
+    let msb: u8 = data[0];
+    let lsb: u8 = data[1] & 0b1111_1100;
+    let data_u16 = u16::from_be_bytes([msb, lsb]);
+    let data_f32 = f32::from(data_u16);
+    return Ok(-6.0 + 125.0 * (data_f32 / 65536.0));
 }
 
 #[cfg(test)]
