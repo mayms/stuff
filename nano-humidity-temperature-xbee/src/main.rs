@@ -6,7 +6,7 @@ use arduino_hal::prelude::*;
 use panic_halt as _;
 use xbee;
 use crate::Command::{NoHoldHumidity, NoHoldTemperature};
-use crate::Error::{I2cError, NotSensorValue};
+use crate::Error::{Htu21Error, I2cError, NotSensorValue};
 
 #[arduino_hal::entry]
 fn main() -> ! {
@@ -21,34 +21,56 @@ fn main() -> ! {
         50000,
     );
 
+    let mut current_temperature: Option<f32> = None;
+    let mut current_humidity: Option<f32> = None;
+    let mut i = 0 as u8;
     loop {
-        delay_ms(1000);
+        delay_ms(1_000);
         led.toggle();
-
-        let mut xbee_data = [0x00 as u8; 4];
-        match read_sensor_value(&mut i2c, NoHoldTemperature) {
-            Ok(data) => {
-                xbee_data[0] = data[0];
-                xbee_data[1] = data[1];
+        match read_sensor_values(&mut i2c) {
+            Ok((data, temperature, humidity)) => {
+                let update_temperature = match current_temperature {
+                    None => true,
+                    Some(x) => (x - temperature) > 0.1 || (x - temperature) < -0.1,
+                };
+                let update_humidity = match current_humidity {
+                    None => true,
+                    Some(x) => (x - humidity) > 0.5 || (x - humidity) < -0.5,
+                };
+                let update = i > 9 || update_temperature || update_humidity;
+                if update {
+                    i = 0;
+                    current_temperature = Some(temperature);
+                    current_humidity = Some(humidity);
+                    let packet = xbee::Packet::new(xbee::ApiIdentifier::TxReq,
+                                                   [0x00, 0x13, 0xA2, 0x00, 0x40, 0x64, 0x03, 0x75],
+                                                   &data);
+                    for byte in packet.iter() {
+                        serial.write_byte(byte);
+                    }
+                    serial.flush();
+                }
             }
-            Err(_) => continue
+            _ => (),
         }
-        match read_sensor_value(&mut i2c, NoHoldHumidity) {
-            Ok(data) => {
-                xbee_data[2] = data[0];
-                xbee_data[3] = data[1];
-            }
-            Err(_) => continue,
-        }
-
-        let packet = xbee::Packet::new(xbee::ApiIdentifier::TxReq,
-                                       [0x00, 0x13, 0xA2, 0x00, 0x40, 0x64, 0x03, 0x75],
-                                       &xbee_data);
-        for byte in packet.iter() {
-            serial.write_byte(byte);
-        }
-        serial.flush();
+        i += 1;
     }
+}
+
+fn read_sensor_values(i2c: &mut I2c) -> Result<([u8; 4], f32, f32), Error> {
+    let mut xbee_data = [0x00 as u8; 4];
+
+    let temperature_data = read_sensor_value(i2c, NoHoldTemperature)?;
+    xbee_data[0] = temperature_data[0];
+    xbee_data[1] = temperature_data[1];
+    let temperature = htu21::parse_temperature(&temperature_data)?;
+
+    let humidity_data = read_sensor_value(i2c, NoHoldHumidity)?;
+    xbee_data[2] = humidity_data[0];
+    xbee_data[3] = humidity_data[1];
+    let humidity = htu21::parse_humidity(&humidity_data)?;
+
+    return Ok((xbee_data, temperature, humidity));
 }
 
 fn read_sensor_value(i2c: &mut I2c, cmd: Command) -> Result<[u8; 2], Error> {
@@ -69,13 +91,6 @@ fn read_sensor_value(i2c: &mut I2c, cmd: Command) -> Result<[u8; 2], Error> {
     return Ok([buffer[0], buffer[1]]);
 }
 
-fn abs(value: f32) -> f32 {
-    return match value {
-        v if v < 0.0 => -1.0 * v,
-        v => v,
-    };
-}
-
 enum Command { NoHoldTemperature, NoHoldHumidity }
 
 impl Command {
@@ -87,14 +102,21 @@ impl Command {
     }
 }
 
-#[derive(ufmt::derive::uDebug, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 enum Error {
     NotSensorValue,
     I2cError(arduino_hal::i2c::Error),
+    Htu21Error(htu21::Error),
 }
 
 impl From<arduino_hal::i2c::Error> for Error {
     fn from(value: arduino_hal::i2c::Error) -> Self {
         return I2cError(value);
+    }
+}
+
+impl From<htu21::Error> for Error {
+    fn from(value: htu21::Error) -> Self {
+        return Htu21Error(value);
     }
 }
