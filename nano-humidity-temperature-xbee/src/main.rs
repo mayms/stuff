@@ -12,7 +12,9 @@ use crate::Error::{Htu21Error, I2cError, NotSensorValue};
 fn main() -> ! {
     let dp = arduino_hal::Peripherals::take().unwrap();
     let pins = arduino_hal::pins!(dp);
-    let mut led = pins.d13.into_output();
+    // let mut led = pins.d13.into_output();
+    let mut xbee_sleep = pins.d7.into_output();
+    xbee_sleep.set_high();
     let mut serial = arduino_hal::default_serial!(dp, pins, 57600);
     let mut i2c = I2c::new(
         dp.TWI,
@@ -21,40 +23,44 @@ fn main() -> ! {
         50000,
     );
 
-    let mut current_temperature: Option<f32> = None;
-    let mut current_humidity: Option<f32> = None;
-    let mut i = 0 as u8;
+    let mut prev_temperature: Option<f32> = None;
+    let mut prev_humidity: Option<f32> = None;
+    let mut cycles = 0 as u8;
     loop {
-        delay_ms(1_000);
-        led.toggle();
+        // led.toggle();
         match read_sensor_values(&mut i2c) {
             Ok((data, temperature, humidity)) => {
-                let update_temperature = match current_temperature {
-                    None => true,
-                    Some(x) => (x - temperature) > 0.1 || (x - temperature) < -0.1,
-                };
-                let update_humidity = match current_humidity {
-                    None => true,
-                    Some(x) => (x - humidity) > 0.5 || (x - humidity) < -0.5,
-                };
-                let update = i > 9 || update_temperature || update_humidity;
-                if update {
-                    i = 0;
-                    current_temperature = Some(temperature);
-                    current_humidity = Some(humidity);
+                let update_temperature = prev_temperature
+                    .map_or(true, |prev| exceeds_delta(prev, temperature, 0.1));
+                let update_humidity = prev_humidity
+                    .map_or(true, |prev| (prev - humidity) > 0.5 || (prev - humidity) < -0.5);
+                if cycles > 9 || update_temperature || update_humidity {
+                    cycles = 0;
+                    prev_temperature = Some(temperature);
+                    prev_humidity = Some(humidity);
                     let packet = xbee::Packet::new(xbee::ApiIdentifier::TxReq,
                                                    [0x00, 0x13, 0xA2, 0x00, 0x40, 0x64, 0x03, 0x75],
                                                    &data);
+                    xbee_sleep.set_low();
+                    delay_ms(200);
                     for byte in packet.iter() {
                         serial.write_byte(byte);
                     }
                     serial.flush();
+                    delay_ms(200);
+                    xbee_sleep.set_high();
                 }
             }
             _ => (),
         }
-        i += 1;
+        cycles += 1;
+        delay_ms(1_000);
     }
+}
+
+fn exceeds_delta(a: f32, b: f32, delta: f32) -> bool {
+    let x = a - b;
+    return x > delta || x < -delta;
 }
 
 fn read_sensor_values(i2c: &mut I2c) -> Result<([u8; 4], f32, f32), Error> {
