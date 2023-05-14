@@ -1,5 +1,7 @@
 #![no_std]
 #![no_main]
+#![feature(asm_experimental_arch)]
+#![feature(abi_avr_interrupt)]
 
 use arduino_hal::{delay_ms, I2c};
 use arduino_hal::prelude::*;
@@ -7,6 +9,8 @@ use panic_halt as _;
 use xbee;
 use crate::Command::{NoHoldHumidity, NoHoldTemperature};
 use crate::Error::{Htu21Error, I2cError, NotSensorValue};
+use avr_device;
+use core::arch::asm;
 
 #[arduino_hal::entry]
 fn main() -> ! {
@@ -23,11 +27,31 @@ fn main() -> ! {
         50000,
     );
 
+    unsafe { // activates wdt interrupt, 1s timeout, enables sleep
+        asm!(
+        "CLI",
+        "WDR",
+        "STS 0x60, {0}",    // WDTCSR
+        "STS 0x60, {1}",    // WDTCSR
+        "out 0x33, {2}",    // SMCR
+        "SEI",
+        //========WWWW_WWWW
+        //========DDDD_DDDD
+        //========IIPC_EPPP
+        //========FE3E__210
+        in(reg) 0b0001_1000 as u8,
+        in(reg) 0b0100_0110 as u8, // interrupt, 1s timeout
+        //--------XXXX_SSSS
+        //--------XXXX_MMME
+        //--------XXXX_210-
+        in(reg) 0b0000_0101 as u8,  // Power down
+        );
+    }
+
     let mut prev_temperature: Option<f32> = None;
     let mut prev_humidity: Option<f32> = None;
     let mut cycles = 0 as u8;
     loop {
-        // led.toggle();
         match read_sensor_values(&mut i2c) {
             Ok((data, temperature, humidity)) => {
                 let update_temperature = prev_temperature
@@ -54,7 +78,13 @@ fn main() -> ! {
             _ => (),
         }
         cycles += 1;
-        delay_ms(1_000);
+        delay_ms(10);
+        unsafe {
+            asm!(
+            "sleep"
+            );
+        }
+        delay_ms(10);
     }
 }
 
@@ -125,4 +155,15 @@ impl From<htu21::Error> for Error {
     fn from(value: htu21::Error) -> Self {
         return Htu21Error(value);
     }
+}
+
+#[avr_device::interrupt(atmega328p)]
+fn WDT() {
+    avr_device::interrupt::free(|_| {
+        unsafe {
+            asm!(
+            "wdr"
+            );
+        }
+    });
 }
