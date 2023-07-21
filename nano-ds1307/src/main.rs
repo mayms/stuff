@@ -26,10 +26,11 @@ fn main() -> ! {
         led.toggle();
         match read(&mut i2c) {
             Ok(data) => {
-                let second = data.second();
-                let minute = data.minute();
-                let hour = data.hour();
-                uwriteln!(&mut serial, "{}:{}:{}\r", hour, minute, second).void_unwrap();
+                uwriteln!(&mut serial, "{} {}-{}-20{} {}:{}:{} out={} sqwe={} rate_select={}\r",
+                    data.day(), data.date(), data.month(), data.year(),
+                    data.hour(), data.minute(), data.second(),
+                    data.control_out(), data.control_sqwe(), data.control_rate_select()
+                ).void_unwrap();
             }
             Err(e) => {
                 uwriteln!(&mut serial, "error={:?}\r", e).void_unwrap();
@@ -73,11 +74,11 @@ impl RawData {
     }
 
     pub fn hour(&self) -> u8 {
-        ((self.minute & 0b0011_0000) >> 4) * 10 + (self.hour & 0b0000_1111)
+        ((self.hour & 0b0011_0000) >> 4) * 10 + (self.hour & 0b0000_1111)
     }
 
     pub fn day(&self) -> u8 {
-        self.date & 0b0000_0111
+        self.day & 0b0000_0111
     }
 
     pub fn date(&self) -> u8 {
